@@ -4,6 +4,7 @@ Bridge module
 Michael Sube (@msube) 2018
 """
 
+import logging
 import re
 import SquashedOrder
 
@@ -12,13 +13,6 @@ import SquashedOrder
 """
 CARDS = range(52)           # 0..51, Pik Ass = 51, Treff 2 = 0
 
-SUITS = range(4)            # 0..3, Treff = 0, Pik = 3
-SUITS_DOWN = range(3,-1,-1) # 3..0
-CLUBS    = SUITS[0]
-DIAMONDS = SUITS[1]
-HEARTS   = SUITS[2]
-SPADES   = SUITS[3]
-
 RANKS = range(13)           # 0..12, 2 = 0, Ass = 12, card % len(RANKS) = rank
 ACE   = RANKS[-1]
 KING  = RANKS[-2]
@@ -26,48 +20,14 @@ QUEEN = RANKS[-3]
 JACK  = RANKS[-4]
 TEN   = RANKS[-5]
 
-POSITIONS = range(1,5)      # 1..4: North, East, South, West
-NORTH = POSITIONS[0]
-EAST  = POSITIONS[1]
-SOUTH = POSITIONS[2]
-WEST  = POSITIONS[3]
-
-DIRECTIONS = range(1,3)     # 1..2: N/S, E/W
-NS = DIRECTIONS[0]
-EW = DIRECTIONS[1]
-
-VULNERABLES = [[], [NS], [EW], [NS, EW]]
-VUL_NONE = VULNERABLES[0]
-VUL_NS = VULNERABLES[1]
-VUL_EW = VULNERABLES[2]
-VUL_ALL = VULNERABLES[3]
-
 ROOMS = range(2)           # 0 = open, 1 = closed
 OPEN = ROOMS[0]
 OPEN = ROOMS[1]
 
-LEVELS = range(8)          # 0..7, Pass = 0, level = 1..7
-PASS = LEVELS[0]
-
-DENOMINATIONS = range(5)   # 0..4, SUITS = 0..3, SA = 4
-NT = DENOMINATIONS [4]
-
-RISKS = range(3)           # 0, 1 = doubled, 2 = redoubled
-UNDOUBLED = RISKS[0]
-DOUBLED = RISKS[1]
-REDOUBLED = RISKS[2]
-
 LOSERS = range(13)
 HCPS = range(41)
 
-Suits = dict(zip(SUITS, '♣♦♥♠'))
 Ranks = dict(zip(RANKS, list('23456789') + ['10'] + list('BDKA')))
-Positions = dict(zip(POSITIONS, ['N', 'O', 'S', 'W']))
-Directions = dict(zip(DIRECTIONS, ['N/S', 'O/W']))
-Rooms = dict(zip(ROOMS, ['Open', 'Closed']))
-Denominations = dict(zip(DENOMINATIONS, list('♣♦♥♠') + ['SA']))
-Denominations_R = dict(zip(DENOMINATIONS, list('TKCP') + ['N']))
-Risks = dict(zip(RISKS, ['', 'x', 'xx']))
 Results = dict(zip(range(-13,+14), [F"{i:+}" for i in range(-13,0)]
                                    + ['=']
                                    + [F"{i:+}" for i in range(+1,+14)]))
@@ -77,29 +37,175 @@ Results = dict(zip(range(-13,+14), [F"{i:+}" for i in range(-13,0)]
 class Card:
     @staticmethod
     def card(suit, rank):
-        return (suit * len(RANKS) + rank)
+        return (suit.value * len(RANKS) + rank)
     @staticmethod
     def rank(card):
         return (card % len(RANKS))
     @staticmethod
     def suit(card):
-        return (card // len(RANKS))
+        return Suit.get(card // len(RANKS))
     @staticmethod
     def str(card):
-        return(Suits[Card.suit(card)] + Ranks[Card.rank(card)])
+        return(F"{Card.suit(card)}{Ranks[Card.rank(card)]}")
+
+class Suit:
+    _index = {}
+    @staticmethod
+    def get(index):
+        return __class__._index[index]
+
+    def __init__(self, index, name, value):
+        self._index = index
+        assert index not in self.__class__._index
+        self.__class__._index[index] = self
+        self.name = name
+        self.value = value
+    def __lt__(self, other):
+        return self._index < other._index
+    def __str__(self):
+        return self.name
+
+    @property
+    def index(self):
+        return self._index
+
+CLUBS    = Suit(0, '♣', 0)
+DIAMONDS = Suit(1, '♦', 1)
+HEARTS   = Suit(2, '♥', 2)
+SPADES   = Suit(3, '♠', 3)
+
+Suits = sorted(Suit._index.values())
+
+class Denomination(Suit):
+    _index = {}
+    _index.update(Suit._index)
+    @staticmethod
+    def get(index):
+        return __class__._index[index]
+
+    def __init__(self, index, name):
+        self._index = index
+        assert index not in self.__class__._index
+        self.__class__._index[index] = self
+        self.name = name
+    def __lt__(self, other):
+        return self._index < other._index
+    def __str__(self):
+        return self.name
+
+NT = Denomination(4, 'SA')
+
+Denominations = sorted(Denomination._index.values())
+Denominations_R = dict(zip(Denominations, list('TKCP') + ['N']))
 
 class Direction:
+    _index = {}
     @staticmethod
-    def positions(direction):
-        return [NORTH, SOUTH] if direction == NS else [EAST, WEST]
-    @staticmethod
-    def factor(direction):
-        return 1 if direction == NS else -1
+    def get(index):
+        return __class__._index[index]
 
-class Position:
+    def __init__(self, index, name, factor):
+        self._index = index
+        assert index not in self.__class__._index
+        self.__class__._index[index] = self
+        self.name = name
+        self._positions = []
+        self._factor = factor
+    def __lt__(self, other):
+        return self._index < other._index
+    def __str__(self):
+        return self.name
+    @property
+    def positions(self):
+        return self._positions
+    @positions.setter
+    def positions(self, position):
+        self._positions.append(position)
+    @property
+    def factor(self):
+        return self._factor
+
+NS = Direction(0, 'N/S', +1)
+EW = Direction(1, 'O/W', -1)
+
+Directions = sorted(Direction._index.values())
+
+class Position():
+    _index = {}
     @staticmethod
-    def direction(position):
-        return NS if position in [NORTH, SOUTH] else EW
+    def get(index):
+        return __class__._index[index]
+
+    def __init__(self, index, name, direction):
+        self._index = index
+        assert index not in self.__class__._index
+        self.__class__._index[index] = self
+        self.name = name
+        self._direction = direction
+        direction.positions = self
+    def __lt__(self, other):
+        return self._index < other._index
+    def __str__(self):
+        return self.name
+    @property
+    def direction(self):
+        return self._direction
+
+NORTH = Position(0, 'N', NS)
+SOUTH = Position(1, 'S', NS)
+EAST  = Position(2, 'O', EW)
+WEST  = Position(3, 'W', EW)
+
+Positions = sorted(Position._index.values())
+
+class Vulnerable:
+    _index = {}
+    @staticmethod
+    def get(index):
+        return __class__._index[index]
+
+    def __init__(self, index, name, directions):
+        self._index = index
+        assert index not in self.__class__._index
+        self.__class__._index[index] = self
+        self.name = name
+        self._directions = directions
+    def __lt__(self, other):
+        return self._index < other._index
+    def __str__(self):
+        return self.name
+    @property
+    def directions(self):
+        return self._directions
+
+VUL_NONE = Vulnerable(0, 'None', set())
+VUL_NS   = Vulnerable(1, 'N/S',  {NS})
+VUL_EW   = Vulnerable(2, 'E/W',  {EW})
+VUL_ALL  = Vulnerable(3, 'All',  {NS, EW})
+
+Vulnerables = sorted(Vulnerable._index.values())
+
+class Risk:
+    _index = {}
+    @staticmethod
+    def get(index):
+        return __class__._index[index]
+
+    def __init__(self, index, name):
+        self._index = index
+        assert index not in self.__class__._index
+        self.__class__._index[index] = self
+        self.name = name
+    def __lt__(self, other):
+        return self._index < other._index
+    def __str__(self):
+        return self.name
+
+UNDOUBLED = Risk(0, '')
+DOUBLED   = Risk(1, 'x')
+REDOUBLED = Risk(2, 'xx')
+
+Risks = sorted(Risk._index.values())
 
 class Room:
     @staticmethod
@@ -113,32 +219,33 @@ class Contract:
     level is 0 if all players passed.
     player, denomination and risk are valid if level > 0.
     """
-    def __init__(self, level, denomination=None, risk=UNDOUBLED, position=None):
-        self.level = level
-        self.position = position
-        self.denomination = denomination
-        self.risk = risk
+    def __init__(self, declarer, level=0, denomination=None, risk=UNDOUBLED):
+        self._declarer = declarer
+        self._level = level
+        self._denomination = denomination
+        self._risk = risk
 
     def __bool__(self):
-        return (self.level > 0)
+        return self._declarer is not None
 
     def __lt__(self, other):
-        return ( self.level < other.level
-               or self.level == other.level and self.denomination < self.denomination )
+        return (  self._level < other._level
+               or self._level == other._level and self._denomination < other._denomination )
 
     def __repr__(self):
-        return ( F"{Positions[self.position]:2}"
-                 F"{self.level}{Denominations_R[self.denomination]}"
-                 F"{Risks[self.risk]}")
+        return ( F"{self.declarer!s:2}"
+                 F"{self._level}{self.denomination}"
+                 F"{self._risk}")
 
     def __str__(self):
-        if self.level == 0: return "  Pass"
-        return ( F"{Positions[self.position]:2}"
-                 F"{self.level}{Denominations[self.denomination]}{Risks[self.risk]}" )
+        if not self: return "  Pass"
+        return ( F"{self._declarer!s:2}{self._level}{self._denomination}{self._risk}" )
 
     @property
     def direction(self):
-        return [Position.direction(self.position)] if self.position else []
+        return [self._declarer.direction] if self else []
+
+PASS = Contract(None)
 
 class Score:
     """ A score is an entry on the scoreboard,
@@ -160,7 +267,7 @@ class Score:
         ew = F"({self.pairs[1]})" if NS in direction else F"{self.pairs[1]} "
         contract = F"{self.contract}"
         if self.contract:
-            contract += F"{self.result:+2}" if self.result else " ="
+            contract += F"{self.result:+3}" if self.result else " ="
         value = F"{self.value:+}" if self.contract else ""
         return F"{value:>5}{ns:>8}   {contract:12} {ew:>8}"
 
@@ -168,17 +275,15 @@ class Hand(dict):
     """ A hand holds the cards, the type and a rating.
     """
     def __init__(self, cards=None, suits=None):
-        super().__init__()
-        logging.debug(F"cards = {cards}")
         if cards: # list of cards
-            suits = [[] for suit in SUITS]
+            suits = [[] for suit in Suits]
             for card in sorted(cards, reverse=True):
-                suits[Card.suit(card)].append(Card.rank(card))
+                suits[Card.suit(card).index].append(Card.rank(card))
         elif suits: # list of ranks per suit
-            suits = [sorted(ranks, reverse=True) for ranks in suits]
+            suits = [sorted(suit, reverse=True) for suit in suits]
         else:
-            suits = [[] for suit in SUITS]
-        self.update(zip(SUITS, suits))
+            suits = [[] for suit in Suits]
+        self.update(dict(zip(Suits, suits)))
         self._length = sum(len(ranks) for ranks in suits)
         self.rating = Rating(suits)
         self.type = Type(suits)
@@ -190,18 +295,18 @@ class Hand(dict):
         return self._length
 
     def __str__(self):
-        suits = ( Suits[suit] + ''.join(Ranks[rank] for rank in self[suit]) for suit in SUITS_DOWN )
-        return ''.join(F"{suit:10}" if suit else F"{'':10}" for suit in suits)
+        suits = [str(suit) + ''.join(Ranks[rank] for rank in self[suit]) for suit in sorted(Suits, reverse=True)]
+        return ''.join(F"{suit:10}" for suit in suits)
 
     @property
     def cards(self): # combines suits into list of cards
-        return list( sorted( (Card.card(suit, rank) for suit in SUITS
+        return list( sorted( (Card.card(suit, rank) for suit in Suits
                                                     for rank in self[suit]),
                              reverse=True ) )
 
     @property
     def suits(self): # returns a dictionary of the suits
-        return { suit:self[suit] for suit in SUITS }
+        return { suit:self[suit] for suit in Suits }
 
 class Rating:
     """ The rating holds informtion about a set of cards.
@@ -265,16 +370,13 @@ class Rating:
         return rating
 
     def __str__(self):
-        # adjust = F"{self.adjust:+2}" if self.adjust else ''
         return ( F"{self.hcp:2} {self.loser:2}"
-                 F" {int(self.ds):1}{'+' if (int(self.ds) < self.ds) else '':1}"
-                 # F"{adjust:2}"
-                 )
+                 F" {int(self.ds):1}{'+' if (int(self.ds) < self.ds) else '':1}" )
 
 class Type:
     """ A type hold information on how a set of cards is distributed across the suits.
     """
-    def __init__(self, suits=None):
+    def __init__(self, suits):
         self.type = [len(ranks) for ranks in suits] if suits else [0,0,0,0]
         self.isFlat = sum(max(3 - l, 0) for l in self.type) < 2
 
@@ -296,8 +398,9 @@ class Board(dict):
     def __init__(self, id, hands=None, dd=None):
         super().__init__()
         self.id = id # integer
-        self.dealer = POSITIONS[(int(id)-1) % 4]
-        self.vulnerable = VULNERABLES[((int(id)-1)%4 + (int(id)-1)//4)%4]
+        self._dealer = Position.get(  (int(id) - 1) % 4  )
+
+        self._vulnerable = Vulnerable.get(((int(id)-1)%4 + (int(id)-1)//4)%4)
         self._length = 0
         self.addHands(hands)
         self.dd = dd
@@ -313,19 +416,19 @@ class Board(dict):
     def __str__(self):
         return ( F"Board: {self.id:2}  ({self.index})"
                   "\n\n"
-                 F"{Directions[NS]:3}: {self.rating(NS)}  "
-                 F"{'*' if self.dealer == NORTH else ' '}"
-                 F"{Positions[NORTH]}: {self[NORTH].rating} {self[NORTH].type}  "
-                 F"{Directions[EW]:3}: {self.rating(EW)}  "
-                 F"{'*' if self.dealer == EAST else ' '}"
-                 F"{Positions[EAST]}: {self[EAST].rating} {self[EAST].type}  "
+                 F"{NS!s:3}: {self.rating(NS)}  "
+                 F"{'*' if self._dealer == NORTH else ' '}"
+                 F"{NORTH}: {self[NORTH].rating} {self[NORTH].type}  "
+                 F"{EW!s:3}: {self.rating(EW)}  "
+                 F"{'*' if self._dealer == EAST else ' '}"
+                 F"{EAST}: {self[EAST].rating} {self[EAST].type}  "
                   "\n"
-                 F"{'VUL' if NS in self.vulnerable else '':15s}"
-                 F"{'*' if self.dealer == SOUTH else ' '}"
-                 F"{Positions[SOUTH]}: {self[SOUTH].rating} {self[SOUTH].type}  "
-                 F"{'VUL' if EW in self.vulnerable else '':15s}"
-                 F"{'*' if self.dealer == WEST else ' '}"
-                 F"{Positions[WEST]}: {self[WEST].rating} {self[WEST].type}  "
+                 F"{'VUL' if NS in self._vulnerable.directions else '':15s}"
+                 F"{'*' if self._dealer == SOUTH else ' '}"
+                 F"{SOUTH}: {self[SOUTH].rating} {self[SOUTH].type}  "
+                 F"{'VUL' if EW in self._vulnerable.directions else '':15s}"
+                 F"{'*' if self._dealer == WEST else ' '}"
+                 F"{WEST}: {self[WEST].rating} {self[WEST].type}  "
                  )
 
     def formatHeader():
@@ -368,8 +471,8 @@ class Board(dict):
         if isinstance(hands, int):  # an index: 0 .. ~10**29
             hands = [Hand(cards=cards) for cards in SquashedOrder.seq52_13(hands)]
         if isinstance(hands, list):  # either passed in or computed from an index
-            self.update(zip(POSITIONS, hands))
-            self._length = sum(bool(self[position]) for position in POSITIONS)
+            self.update(zip(Positions, hands))
+        self._length = sum(bool(self[index]) for index in self)
 
     @property
     def scores(self):
@@ -377,17 +480,18 @@ class Board(dict):
 
     @property
     def hands(self): # returns a dictionary of the hands
-        return { position: self[position] for position in POSITIONS }
+        return { position: self[position] for position in Positions }
 
     def rating(self, dir):
-        positions = Direction.positions(dir)
+        dir.positions
+        positions = dir.positions
         return self[positions[0]].rating + self[positions[1]].rating
 
     @property
     def index(self):
         if not bool(self):  # can't compute index if cards are missing
             return None
-        return SquashedOrder.index52_13([self[pos].cards for pos in [NORTH, EAST, SOUTH]])
+        return SquashedOrder.index52_13([self[pos].cards for pos in Positions])
 
     def type(self, dir):
         positions = Direction.positions(dir)
@@ -396,17 +500,19 @@ class Board(dict):
 # ---------------------------------------------------------------------------------------
 
 if __name__ == '__main__':
-    if 0:
+    if 1:
         board = Board(21, 35817416954748550972957151064)
-        board.addScore(Score([17,31], Contract(4, SPADES, UNDOUBLED, SOUTH), -1, -50))
-        board.addScore(Score([11,24], Contract(5, CLUBS, DOUBLED, WEST), 0, 621))
-        board.addScore(Score([11,24], Contract(PASS), 0, 0))
+        board.addScore(Score([17,31], Contract(SOUTH, 4, SPADES, UNDOUBLED), -1, -50))
+        board.addScore(Score([11,24], Contract(WEST, 5, CLUBS, DOUBLED), 0, 550))
+        board.addScore(Score([11,24], Contract(EAST, 3, NT, REDOUBLED), 0, 1000))
+        board.addScore(Score([11,24], PASS, 0, 0))
         print(board)
+        print()
         for score in board.scores:
             print(score)
         print()
         for (position, hand) in board.hands.items():
-            print(F"{Positions[position]}  {hand}")
+            print(F"{position}:  {hand}")
         print()
 
 
@@ -417,37 +523,28 @@ if __name__ == '__main__':
 
         for boardId in BOARDS:
             deal = random.sample(CARDS, len(CARDS))
-            handCards = ( deal[i:i+len(CARDS)//len(POSITIONS)]
-                          for i in range(0, len(CARDS), len(CARDS)//len(POSITIONS)) )
+            handCards = ( deal[i:i+len(CARDS)//len(Positions)]
+                          for i in range(0, len(CARDS), len(CARDS)//len(Positions)) )
             handCards = [x for x in handCards]
-            for x in handCards: print(x)
             hands = [ Hand(cards=cards) for cards in handCards ]
-            for hand in hands: print(hand)
-            print()
-            print(isinstance(hands, int))
             board = Board(boardId, hands)
             print(board)
+            print()
             hands = board.hands
-            for hand in hands:
-                print(F"{Positions[hand]}: {hands[hand]}")
+            for position in hands:
+                print(F"{position}: {hands[position]}")
             print()
 
-            index = board.index
-
-            for (position, hand) in board.hands.items():
-                print(F"{Positions[position]}  {hand}")
-            print()
-
-            board.addScore(Score(['201','102'], Contract(5, DIAMONDS, REDOUBLED, SOUTH), -1, -200, 12))
-            board.addScore(Score(['201','102'], Contract(6, CLUBS, UNDOUBLED, NORTH), 0, 980, 12))
-            board.addScore(Score(['201','102'], Contract(PASS)))
+            board.addScore(Score(['201','102'], Contract(SOUTH, 5, DIAMONDS, REDOUBLED), -1, -200, 12))
+            board.addScore(Score(['201','102'], Contract(NORTH, 6, CLUBS, UNDOUBLED), 0, 920, 12))
+            board.addScore(Score(['201','102'], PASS))
             print(board)
+            print()
             for score in board.scores:
                 print(score)
             print()
 
             s = board.index
-            print(s)
             b = Board(board.id, hands=s)
             print(b)
             print()
