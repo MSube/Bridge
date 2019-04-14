@@ -4,6 +4,9 @@ Bridge module
 Michael Sube (@msube) 2018
 """
 
+__version__ = '0.5'
+__author__ = "Michael Sube"
+
 import logging
 import re
 import SquashedOrder
@@ -24,13 +27,7 @@ ROOMS = range(2)           # 0 = open, 1 = closed
 OPEN = ROOMS[0]
 OPEN = ROOMS[1]
 
-LOSERS = range(13)
-HCPS = range(41)
-
 Ranks = dict(zip(RANKS, list('23456789') + ['10'] + list('BDKA')))
-Results = dict(zip(range(-13,+14), [F"{i:+}" for i in range(-13,0)]
-                                   + ['=']
-                                   + [F"{i:+}" for i in range(+1,+14)]))
 
 # ---------------------------------------------------------------------------------------
 
@@ -152,8 +149,8 @@ class Position():
         return self._direction
 
 NORTH = Position(0, 'N', NS)
-SOUTH = Position(1, 'S', NS)
-EAST  = Position(2, 'O', EW)
+EAST  = Position(1, 'O', EW)
+SOUTH = Position(2, 'S', NS)
 WEST  = Position(3, 'W', EW)
 
 Positions = sorted(Position._index.values())
@@ -244,6 +241,9 @@ class Contract:
     @property
     def direction(self):
         return [self._declarer.direction] if self else []
+    @property
+    def declarer(self):
+        return self._declarer
 
 PASS = Contract(None)
 
@@ -265,9 +265,9 @@ class Score:
         direction = self.contract.direction if self.contract else []
         ns = F"({self.pairs[0]})" if EW in direction else F"{self.pairs[0]} "
         ew = F"({self.pairs[1]})" if NS in direction else F"{self.pairs[1]} "
-        contract = F"{self.contract}"
+        contract = F"{self.contract!s:7}"
         if self.contract:
-            contract += F"{self.result:+3}" if self.result else " ="
+            contract += F"{self.result:+2}" if self.result else " ="
         value = F"{self.value:+}" if self.contract else ""
         return F"{value:>5}{ns:>8}   {contract:12} {ew:>8}"
 
@@ -376,7 +376,7 @@ class Rating:
 class Type:
     """ A type hold information on how a set of cards is distributed across the suits.
     """
-    def __init__(self, suits):
+    def __init__(self, suits=None):
         self.type = [len(ranks) for ranks in suits] if suits else [0,0,0,0]
         self.isFlat = sum(max(3 - l, 0) for l in self.type) < 2
 
@@ -438,22 +438,22 @@ class Board(dict):
 
     def formatForPair(self, pair):
         for score in self._scores:
-            if not pair in score.pairs: continue
+            if not pair in score.pairs: continue # not played by pair
             dir = NS if pair == score.pairs[0] else EW
             result = F"{score.result:+}" if score.result else "="
-            contract = F"{score.contract}{result:>2}" if score.contract else 'Pass'
-            pos = Direction.positions(dir)
+            contract = F"{score.contract!s:7}{result:>2}" if score.contract else 'Pass'
+            pos = dir.positions
             declared = [' ', ' ', ' ']
-            if score.contract.player in pos:
+            if score.contract.declarer in pos:
                 declared[0] = '*'
-                declared[1 if score.contract.player == pos[0] else 2] = '*'
+                declared[1 if score.contract.declarer == pos[0] else 2] = '*'
             value = score.value if dir == NS else -score.value
-            points = score.points if dir == NS else -score.points
+            points = score.points[0] if dir == NS else score.points[1]
             return ( F"{self.id:3}   {contract:9} {value:+5}  {int(points):+4}"
-                   F"  {declared[0]:1}{Directions[dir]:3}: {self.rating(dir)}{self.type(dir)}"
-                   F"  {declared[1]:1}{Positions[pos[0]]:1}: {self[pos[0]].rating}"
+                   F"  {declared[0]!s:1}{dir!s:3}: {self.rating(dir)}{self.type(dir)}"
+                   F"  {declared[1]!s:1}{pos[0]!s:1}: {self[pos[0]].rating}"
                    F" {self[pos[0]].type}"
-                   F"  {declared[2]:1}{Positions[pos[1]]:1}: {self[pos[1]].rating}"
+                   F"  {declared[2]!s:1}{pos[1]!s:1}: {self[pos[1]].rating}"
                    F" {self[pos[1]].type}"
                  )
 
@@ -483,7 +483,6 @@ class Board(dict):
         return { position: self[position] for position in Positions }
 
     def rating(self, dir):
-        dir.positions
         positions = dir.positions
         return self[positions[0]].rating + self[positions[1]].rating
 
@@ -494,7 +493,7 @@ class Board(dict):
         return SquashedOrder.index52_13([self[pos].cards for pos in Positions])
 
     def type(self, dir):
-        positions = Direction.positions(dir)
+        positions = dir.positions
         return self[positions[0]].type + self[positions[1]].type
 
 # ---------------------------------------------------------------------------------------

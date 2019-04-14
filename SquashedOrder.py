@@ -4,6 +4,10 @@ implements sequence numbers for sequences
 
 Michael Sube (@msube) 2018
 """
+
+__version__ = '0.5'
+__author__ = "Michael Sube"
+
 import math
 
 #   choose(n-1,k) = choose(n,k) / n * (n-k)
